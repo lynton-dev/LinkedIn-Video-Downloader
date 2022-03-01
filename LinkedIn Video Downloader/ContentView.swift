@@ -28,9 +28,9 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "doc.on.clipboard.fill")
                 }.help("Paste")
-            }
+            }.padding()
             
-            Button("Download") {
+            Button("Download Video") {
                 // Get URL to LinkedIn video
                 let video = self.getLinkedInVideoUrlString(urlString: linkedInURL)
                 if (video != nil) {
@@ -102,16 +102,42 @@ struct ContentView: View {
                 let videoURLString = String(videoURL)
                 print(videoURLString)
                 
-                //TODO: find better way to get video quality string. i.e. not relying on searching on hardcoded file extention "mp4".
-                var videoQuality = String(videoURLString[videoURLString.range(of: "mp4")!.lowerBound...])
-                videoQuality = String(videoQuality[..<videoQuality.range(of: "fp")!.upperBound])
+                // Get video quality components from video URL
+                let videoURLcomponents = videoURLString.components(separatedBy: "/")
+                var videoQuality = ""
+                for component in videoURLcomponents {
+                    // Check known substrings of video quality URL component
+                    if (component.contains("mp4") || component.contains("fp") || component.contains("crf")) {
+                        // Video quality component found
+                        videoQuality = component
+                        break
+                    }
+                }
                 //print(videoQuality)
                 
-                let videoURLcomponents = videoQuality.components(separatedBy: "-")
-                let fileExt = videoURLcomponents[0]
-                let res = Int(videoURLcomponents[1].replacingOccurrences(of: "p", with: "")) ?? 0
-                let framerate = Int(videoURLcomponents[2].replacingOccurrences(of: "fp", with: "")) ?? 0
-                //print (fileExt + ", " + String(res) + ", " + String(framerate))
+                var fileExt = "mp4"
+                var res = 0
+                var framerate = 0
+                
+                // Extract needed video info
+                if (!videoQuality.isEmpty) {
+                    let videoQualityURLcomponents = videoQuality.components(separatedBy: "-")
+                    fileExt = videoQualityURLcomponents[0]
+                    for part in videoQualityURLcomponents {
+                        if (part.hasSuffix("fp")) {
+                            let framerateStr = videoQualityURLcomponents[2].replacingOccurrences(of: "fp", with: "")
+                            if (framerateStr.isNumeric) {
+                                framerate = Int(framerateStr) ?? 0
+                            }
+                        } else if (part.last == "p") {
+                            let resStr = videoQualityURLcomponents[1].replacingOccurrences(of: "p", with: "")
+                            if (resStr.isNumeric) {
+                                res = Int(resStr) ?? 0
+                            }
+                        }
+                    }
+                    //print (fileExt + ", " + String(res) + ", " + String(framerate))
+                }
                 videosList.append(Video(URLString: videoURLString, fileExt: fileExt, res: res, framerate: framerate))
                 
                 // Remove this video URL from videoDataSources string
@@ -142,7 +168,7 @@ struct ContentView: View {
 
         guard let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         
-        var suggestedFileName = "linkedin_video_" + String(Date().timeIntervalSince1970) + "." + outputFileExt
+        var suggestedFileName = "linkedin_video_" + String(Date().timeIntervalSince1970.rounded()) + "." + outputFileExt
         var destinationURL = documentsDirectoryURL.appendingPathComponent(suggestedFileName)
 
         // check if the file already exist at the destination folder if you don't want to download it twice
@@ -215,4 +241,10 @@ struct Video {
     var fileExt : String
     var res : Int
     var framerate : Int
+}
+
+extension String {
+    var isNumeric : Bool {
+        return Double(self) != nil
+    }
 }

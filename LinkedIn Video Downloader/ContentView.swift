@@ -11,6 +11,8 @@ import SwiftSoup
 struct ContentView: View {
     @State private var linkedInURL: String = ""
     @State private var progressShown = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
     
     var body: some View {
         VStack {
@@ -21,7 +23,7 @@ struct ContentView: View {
                     let pasteboard = NSPasteboard.general
                     if let str = pasteboard.string(forType: NSPasteboard.PasteboardType.string) {
                         // text found
-                        linkedInURL = str
+                        self.linkedInURL = str
                     }
                 } label: {
                     Image(systemName: "doc.on.clipboard.fill")
@@ -29,27 +31,118 @@ struct ContentView: View {
             }
             
             Button("Download") {
-                let videoURLString = getLinkedInVideoUrlString(urlString: linkedInURL)
-                if (!videoURLString.isEmpty) {
-                    downloadVideoLinkAndCreateAsset(videoURLString)
-                    progressShown = true
+                // Get URL to LinkedIn video
+                let video = self.getLinkedInVideoUrlString(urlString: linkedInURL)
+                if (video != nil) {
+                    let videoURLString = video?.URLString ?? ""
+                    let videoFileExt = video?.fileExt ?? ""
+                    // Download video
+                    if (!(videoURLString.isEmpty)) {
+                        if (videoFileExt.isEmpty) {
+                            self.downloadVideoLinkAndCreateAsset(videoLink: videoURLString)
+                        } else {
+                            self.downloadVideoLinkAndCreateAsset(videoLink: videoURLString, outputFileExt: videoFileExt)
+                        }
+                        self.progressShown = true
+                    }
                 }
             }
             
             ProgressView()
-                .frame(height: progressShown ? nil : 0)
-                .opacity(progressShown ? 1 : 0)
+                .frame(height: self.progressShown ? nil : 0)
+                .opacity(self.progressShown ? 1 : 0)
         }
-            .padding()
+        .alert(isPresented: $showAlert) {
+            Alert(
+                title: Text("Oops!"),
+                message: Text(self.alertMessage),
+                dismissButton: .cancel(Text("Okay"), action: {
+                    
+                })
+            )
+        }
+        .padding()
     }
     
-    func downloadVideoLinkAndCreateAsset(_ videoLink: String) {
+    func getLinkedInVideoUrlString(urlString : String) -> Video? {
+        guard let myURL = URL(string: urlString) else {
+            print("Error: \(urlString) doesn't seem to be a valid URL")
+            self.alertMessage = "Not a valid URL."
+            self.showAlert.toggle()
+            return nil
+        }
+
+        do {
+            let HTMLString = try String(contentsOf: myURL, encoding: .utf8)
+            
+            let doc: Document = try SwiftSoup.parse(HTMLString)
+            let videoElements: Elements = try doc.select("video")
+            if (videoElements.count == 0) {
+                self.alertMessage = "No embedded video found in the LinkedIn post."
+                self.showAlert.toggle()
+                return nil
+            }
+            let videoElement: Element = videoElements.first()!   // video tag ie. <video...
+            var videoDataSources = try videoElement.attr("data-sources")   // data-sources attribute in video tag
+            videoDataSources = try Entities.unescape(videoDataSources)  // unescape HTML text
+            //print(videoDataSources)
+            
+            let httpCount = videoDataSources.components(separatedBy:"http").count - 1
+            //print ("httpCount: " + String(httpCount))
+            
+            var videosList = [Video]()
+            
+            for _ in 0...httpCount - 1 {
+                // Get video URL
+                let videoURLStartRange = videoDataSources.range(of: "http")         // Get start range starting with "http"
+                var videoURL = videoDataSources[videoURLStartRange!.lowerBound...]  // Set videoURL as a substring of the start range forward
+                let videoURLEndRange = videoURL.firstIndex(of: "\"")!               // Get end range that is the first index of "
+                videoURL = videoURL[..<videoURLEndRange]                            // This gives us the final video URL
+                
+                let videoURLString = String(videoURL)
+                print(videoURLString)
+                
+                //TODO: find better way to get video quality string. i.e. not relying on searching on hardcoded file extention "mp4".
+                var videoQuality = String(videoURLString[videoURLString.range(of: "mp4")!.lowerBound...])
+                videoQuality = String(videoQuality[..<videoQuality.range(of: "fp")!.upperBound])
+                //print(videoQuality)
+                
+                let videoURLcomponents = videoQuality.components(separatedBy: "-")
+                let fileExt = videoURLcomponents[0]
+                let res = Int(videoURLcomponents[1].replacingOccurrences(of: "p", with: "")) ?? 0
+                let framerate = Int(videoURLcomponents[2].replacingOccurrences(of: "fp", with: "")) ?? 0
+                //print (fileExt + ", " + String(res) + ", " + String(framerate))
+                videosList.append(Video(URLString: videoURLString, fileExt: fileExt, res: res, framerate: framerate))
+                
+                // Remove this video URL from videoDataSources string
+                videoDataSources = videoDataSources.replacingOccurrences(of: videoURLString, with: "")
+            }
+            
+            // Sort videosList by resolution
+            videosList.sort { (lhs: Video, rhs: Video) -> Bool in
+                return lhs.res < rhs.res
+            }
+            
+            // The last element in videosList will have the highest resolution. We will use this video.
+            let video = videosList.last
+            return video
+            
+        } catch let error {
+            print("Error: \(error)")
+            self.alertMessage = "Something went wrong."
+            self.showAlert.toggle()
+        }
+        
+        return nil
+    }
+    
+    func downloadVideoLinkAndCreateAsset(videoLink: String, outputFileExt: String = "mp4") {
         // use guard to make sure you have a valid url
         guard let videoURL = URL(string: videoLink) else { return }
 
         guard let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         
-        var suggestedFileName = "video.mp4"
+        var suggestedFileName = "linkedin_video_" + String(Date().timeIntervalSince1970) + "." + outputFileExt
         var destinationURL = documentsDirectoryURL.appendingPathComponent(suggestedFileName)
 
         // check if the file already exist at the destination folder if you don't want to download it twice
@@ -98,6 +191,12 @@ struct ContentView: View {
                     }
                 }
                 else {
+                    // Save has been cancelled. Delete temp video file.
+                    do {
+                        try FileManager.default.removeItem(at: destinationURL)
+                    } catch {
+                        print(error)
+                    }
                     self.progressShown = false
                 }
             }
@@ -111,69 +210,9 @@ struct ContentView_Previews: PreviewProvider {
     }
 }
 
-func getLinkedInVideoUrlString(urlString : String) -> String {
-    guard let myURL = URL(string: urlString) else {
-        print("Error: \(urlString) doesn't seem to be a valid URL")
-        return ""
-    }
-
-    do {
-        let HTMLString = try String(contentsOf: myURL, encoding: .utf8)
-        
-        //let doc: Document = try SwiftSoup.parse(myHTMLString)
-        //let str = try doc.text()
-        
-        let doc: Document = try SwiftSoup.parse(HTMLString)
-        let video: Element = try doc.select("video").first()!   // video tag ie. <video...
-        var videoDataSources = try video.attr("data-sources")   // data-sources attribute in video tag
-        videoDataSources = try Entities.unescape(videoDataSources)  // unescape HTML text
-        //print(videoDataSources)
-        
-        let httpCount = videoDataSources.components(separatedBy:"http").count - 1
-        //print ("httpCount: " + String(httpCount))
-        
-        if (httpCount >= 1) {
-            // Get low quality video URL
-            var videoURLStartRange = videoDataSources.range(of: "http")         // Get start range starting with "http"
-            var videoURL = videoDataSources[videoURLStartRange!.lowerBound...]  // Set videoURL as a substring of the start range forward
-            var videoURLEndRange = videoURL.firstIndex(of: "\"")!               // Get end range that is the first index of "
-            videoURL = videoURL[..<videoURLEndRange]                            // This gives us the final video URL
-            
-            let lowQualityVideoURLString = String(videoURL)
-            print(lowQualityVideoURLString)
-            
-            var lowVideoQuality = String(lowQualityVideoURLString[lowQualityVideoURLString.range(of: "mp4")!.lowerBound...])
-            lowVideoQuality = String(lowVideoQuality[..<lowVideoQuality.range(of: "fp")!.upperBound])
-            //print(lowVideoQuality)
-            
-            var videoContentURLString = lowQualityVideoURLString
-            
-            if (httpCount >= 2) {
-                // Remove low quality video URL from videoDataSources string to leave remaining high quality video URL
-                videoDataSources = videoDataSources.replacingOccurrences(of: lowQualityVideoURLString, with: "")
-                
-                // Get high quality video URL
-                videoURLStartRange = videoDataSources.range(of: "http")
-                videoURL = videoDataSources[videoURLStartRange!.lowerBound...]
-                videoURLEndRange = videoURL.firstIndex(of: "\"")!
-                videoURL = videoURL[..<videoURLEndRange]
-                
-                let highQualityVideoURLString = String(videoURL)
-                print(highQualityVideoURLString)
-                
-                var highVideoQuality = String(highQualityVideoURLString[highQualityVideoURLString.range(of: "mp4")!.lowerBound...])
-                highVideoQuality = String(highVideoQuality[..<highVideoQuality.range(of: "fp")!.upperBound])
-                //print(highVideoQuality)
-                
-                videoContentURLString = highQualityVideoURLString
-            }
-            
-            return videoContentURLString
-        }
-        
-    } catch let error {
-        print("Error: \(error)")
-    }
-    
-    return ""
+struct Video {
+    var URLString : String
+    var fileExt : String
+    var res : Int
+    var framerate : Int
 }

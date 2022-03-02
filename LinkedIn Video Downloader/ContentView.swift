@@ -73,7 +73,7 @@ struct ContentView: View {
                 inputURLStr = "www." + inputURLStr
             }
             inputURLStr = "https://" + inputURLStr
-        } else if (inputURLStr.hasPrefix("https://")) {
+        } else if (inputURLStr.hasPrefix("https://") && !inputURLStr.hasPrefix("https://www.")) {
             inputURLStr = inputURLStr.replacingOccurrences(of: "https://", with: "https://www.")
         }
         
@@ -199,24 +199,20 @@ struct ContentView: View {
         var suggestedFileName = "linkedin_video_" + String(format: "%.0f", Date().timeIntervalSince1970.rounded()) + "." + outputFileExt
         var destinationURL = documentsDirectoryURL.appendingPathComponent(suggestedFileName)
 
-        // check if the file already exist at the destination folder if you don't want to download it twice
+        // Check if the file already exist at the destination folder so we don't download it again
         if !FileManager.default.fileExists(atPath: documentsDirectoryURL.appendingPathComponent(videoURL.lastPathComponent).path) {
-
-            // set up your download task
+            // Set up download task
             URLSession.shared.downloadTask(with: videoURL) { (location, response, error) -> Void in
-
-                // use guard to unwrap your optional url
+                // Using guard to unwrap optional url
                 guard let location = location else { return }
                 
                 suggestedFileName = response?.suggestedFilename ?? videoURL.lastPathComponent
 
-                // create a destination url with the server response suggested file name
+                // Create destination url with the server response suggested file name
                 destinationURL = documentsDirectoryURL.appendingPathComponent(suggestedFileName)
 
                 do {
-
                     try FileManager.default.moveItem(at: location, to: destinationURL)
-
                 } catch { print(error) }
 
             }.resume()

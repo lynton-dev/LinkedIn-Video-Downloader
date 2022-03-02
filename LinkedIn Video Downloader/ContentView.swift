@@ -65,15 +65,35 @@ struct ContentView: View {
     }
     
     func getLinkedInVideoUrlString(urlString : String) -> Video? {
-        guard let myURL = URL(string: urlString) else {
-            print("Error: \(urlString) doesn't seem to be a valid URL")
+        // Initial URL checking and/or corrections
+        var inputURLStr = urlString
+        if (!inputURLStr.hasPrefix("http")) {
+            if (!inputURLStr.hasPrefix("www.")) {
+                inputURLStr = "www." + inputURLStr
+            }
+            inputURLStr = "https://" + inputURLStr
+        } else if (inputURLStr.hasPrefix("https://")) {
+            inputURLStr = inputURLStr.replacingOccurrences(of: "https://", with: "https://www.")
+        }
+        
+        // Update the text field with the corrected URL
+        self.linkedInURL = inputURLStr
+        
+        if (!inputURLStr.hasPrefix("https://www.linkedin.com/")) {
+            self.alertMessage = "Not a valid LinkedIn URL."
+            self.showAlert.toggle()
+            return nil
+        }
+        
+        guard let inputURL = URL(string: inputURLStr) else {
+            print("Error: \(inputURLStr) doesn't seem to be a valid URL")
             self.alertMessage = "Not a valid URL."
             self.showAlert.toggle()
             return nil
         }
 
         do {
-            let HTMLString = try String(contentsOf: myURL, encoding: .utf8)
+            let HTMLString = try String(contentsOf: inputURL, encoding: .utf8)
             
             let doc: Document = try SwiftSoup.parse(HTMLString)
             let videoElements: Elements = try doc.select("video")

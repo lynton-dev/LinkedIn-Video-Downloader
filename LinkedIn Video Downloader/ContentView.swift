@@ -18,6 +18,7 @@ struct ContentView: View {
         VStack {
             HStack {
                 TextField("Enter LinkedIn Post URL", text: $linkedInURL)
+                    .modifier(TextFieldClearButton(text: $linkedInURL))
 
                 Button {
                     let pasteboard = NSPasteboard.general
@@ -76,9 +77,6 @@ struct ContentView: View {
             inputURLStr = inputURLStr.replacingOccurrences(of: "https://", with: "https://www.")
         }
         
-        // Update the text field with the corrected URL
-        self.linkedInURL = inputURLStr
-        
         if (!inputURLStr.hasPrefix("https://www.linkedin.com/")) {
             self.alertMessage = "Not a valid LinkedIn URL."
             self.showAlert.toggle()
@@ -91,6 +89,9 @@ struct ContentView: View {
             self.showAlert.toggle()
             return nil
         }
+        
+        // Update the text field with the corrected URL
+        self.linkedInURL = inputURLStr
 
         do {
             let HTMLString = try String(contentsOf: inputURL, encoding: .utf8)
@@ -109,6 +110,13 @@ struct ContentView: View {
             
             let httpCount = videoDataSources.components(separatedBy:"http").count - 1
             //print ("httpCount: " + String(httpCount))
+            
+            // If we don't have at least one video link then abort
+            if (httpCount < 1) {
+                self.alertMessage = "Sorry, video not found."
+                self.showAlert.toggle()
+                return nil
+            }
             
             var videosList = [Video]()
             
@@ -188,7 +196,7 @@ struct ContentView: View {
 
         guard let documentsDirectoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         
-        var suggestedFileName = "linkedin_video_" + String(Date().timeIntervalSince1970.rounded()) + "." + outputFileExt
+        var suggestedFileName = "linkedin_video_" + String(format: "%.0f", Date().timeIntervalSince1970.rounded()) + "." + outputFileExt
         var destinationURL = documentsDirectoryURL.appendingPathComponent(suggestedFileName)
 
         // check if the file already exist at the destination folder if you don't want to download it twice
@@ -261,6 +269,25 @@ struct Video {
     var fileExt : String
     var res : Int
     var framerate : Int
+}
+
+struct TextFieldClearButton: ViewModifier {
+    @Binding var text: String
+    
+    func body(content: Content) -> some View {
+        HStack {
+            content
+            
+            if !text.isEmpty {
+                Button(
+                    action: { self.text = "" },
+                    label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                )
+            }
+        }
+    }
 }
 
 extension String {

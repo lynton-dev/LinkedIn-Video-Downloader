@@ -1,9 +1,0 @@
-# Ignore Mac system files
-.DS_store
-
-# Ignore Releases folder
-Releases
-
-# Ignore .app and .dmg files
-*.app
-*.dmg
